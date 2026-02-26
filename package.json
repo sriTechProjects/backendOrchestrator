@@ -1,0 +1,19 @@
+{
+  "name": "backend_orchestrator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "/bin/index.js",
+  "bin": {
+    "bsgen": "bin/index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "commander": "^14.0.2"
+  }
+}
