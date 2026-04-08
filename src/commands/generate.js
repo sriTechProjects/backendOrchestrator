@@ -4,6 +4,7 @@ const introspection = require('../utils/introspection');
 const generateController = require('../templates/controller.template');
 const writer = require('../utils/writer');
 const config = require('../utils/config');
+const { sanitizeResourceName } = require('../utils/sanitize');
 
 // Helper to parse flags (e.g. "CR" -> ['create', 'read'])
 function parseOps(flag) {
@@ -20,31 +21,31 @@ async function generate(resourceName, options) {
         // 1. Configuration & Setup
         const conf = await config.getConfig();
         const ops = parseOps(options.ops);
-        
-        // Normalize names (e.g. "users" -> "users", "User" -> "users" - simplistic)
-        const tableName = resourceName.toLowerCase(); 
+
+        // Normalize and sanitize resource name to avoid path traversal or invalid filenames
+        const tableName = sanitizeResourceName(resourceName);
         const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
         const controllerName = `${capitalize(tableName)}Controller`;
 
         // 2. Introspection (The "Eyes")
         console.log('   🔍 Scanning database schema...');
         const columns = await introspection.getTableSchema(tableName);
-        
+
         // Find the actual Primary Key name (fallback to 'id' just in case)
         const pkColumn = columns.find(c => c.isPrimary) || { name: 'id' };
         const pkName = pkColumn.name;
-        
+
         // 3. Generate Controller Code (The "Brain")
         console.log('   🧠 Constructing logic...');
         const controllerFunctions = generateController(tableName, columns, conf.database.dialect, ops);
-        
+
         // 4. Write Controller File (The "Hands")
         const controllerPath = path.join(process.cwd(), 'src', 'controllers', `${tableName}.controller.js`);
-        
+
         // Add header if new file
         if (controllerFunctions.length > 0) {
             const result = await writer.smartAppend(controllerPath, controllerFunctions);
-            
+
             // If new file, prepend imports
             if (result.status === 'created') {
                 const dbImport = "const db = require('../config/db');";
@@ -57,7 +58,7 @@ async function generate(resourceName, options) {
         // 5. Generate & Write Route File (NOW PASSING pkName!)
         const routeContent = generateRouteContent(tableName, ops, pkName);
         const routePath = path.join(process.cwd(), 'src', 'routes', `${tableName}.routes.js`);
-        
+
         const routeResult = await writer.appendRoute(routePath, routeContent);
         // Updated console log to use the message from appendRoute
         console.log(`   ✅ Routes: ${routeResult.message} (src/routes/${tableName}.routes.js)`);
@@ -65,7 +66,7 @@ async function generate(resourceName, options) {
         // 6. Inject into Main Router
         const routerPath = path.join(process.cwd(), 'src', 'routes', 'index.js');
         const injectResult = await writer.injectRoute(routerPath, tableName, `./${tableName}.routes`);
-        
+
         if (injectResult.status === 'warning') {
             console.log(`   ⚠️  ${injectResult.message}`);
         } else if (injectResult.status === 'updated') {
@@ -90,7 +91,7 @@ function generateRouteContent(resourceName, ops, pkName) {
     const name = capitalize(singular);
 
     let lines = [`const router = require('express').Router();`,
-                 `const controller = require('../controllers/${resourceName}.controller');`];
+        `const controller = require('../controllers/${resourceName}.controller');`];
 
     lines.push(''); // spacer
 

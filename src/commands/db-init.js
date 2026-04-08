@@ -1,9 +1,11 @@
 const fs = require('fs'); // Standard fs for sync operations (simple writes)
 const path = require('path');
-const { spawnSync } = require('child_process');
+const safeExec = require('../utils/executor');
 const input = require("../utils/input");
 const dbTemplate = require("../templates/db.template");
 const config = require('../utils/config'); // <--- NEW IMPORT
+
+const { validateDriver } = require('../utils/sanitize');
 
 const db_init = async () => {
     console.log('Initialize Database Connection');
@@ -20,31 +22,32 @@ const db_init = async () => {
 
     // 2. Install Driver
     const pkgName = normalizedDialect === 'postgres' ? 'pg' : 'mysql2';
+    // Validate the resolved package name before using it to install or require
+    validateDriver(pkgName);
     console.log(`\n Installing driver: ${pkgName}...`);
 
     try {
-        spawnSync('npm', ['install', pkgName], { stdio: 'inherit', shell: true });
+        safeExec('npm', ['install', pkgName], { stdio: 'inherit' });
     } catch (e) {
-        throw new Error('Failed to install driver.');
+        throw new Error('Failed to install driver. ' + (e && e.message ? e.message : ''));
     }
 
     // 3. Test Connection
     console.log('\n Testing connection credentials...');
-    // Calculate path to the just-installed module
-    const driverPath = path.join(process.cwd(), 'node_modules', pkgName);
-
     try {
         if (normalizedDialect === 'postgres') {
-            const { Client } = require(
-                driverPath
-            );
+            const { Client } = require(require.resolve(pkgName, {
+                paths: [process.cwd()]
+            }));
             const client = new Client({ host, user, password, database });
             await client.connect();
             await client.query('SELECT 1');
             await client.end();
         } else {
-            // MySQL
-            const mysql = require(path.join(driverPath, 'promise'));
+            // MySQL (mysql2 promise wrapper)
+            const mysql = require(require.resolve(pkgName + '/promise', {
+                paths: [process.cwd()]
+            }));
             const connection = await mysql.createConnection({ host, user, password, database });
             await connection.execute('SELECT 1');
             await connection.end();

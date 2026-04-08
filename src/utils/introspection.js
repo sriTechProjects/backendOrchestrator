@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const config = require('./config');
+const { validateDriver } = require('./sanitize');
 
 /**
  * Helper to manually parse .env without requiring 'dotenv'
@@ -31,6 +32,9 @@ async function getTableSchema(tableName) {
     const env = await getEnvVars();
     const { dialect, driver, envKeys } = conf.database;
 
+    // Validate driver against whitelist to prevent arbitrary require() on attacker-controlled values
+    validateDriver(driver);
+
     const dbConfig = {
         host: env[envKeys.host],
         user: env[envKeys.user],
@@ -39,14 +43,15 @@ async function getTableSchema(tableName) {
         port: parseInt(env[envKeys.port], 10)
     };
 
-    const driverPath = path.join(process.cwd(), 'node_modules', driver);
+    // Do not build require paths from unvalidated config. We'll require by package name.
+
 
     // 2. Dialect Specific Introspection
     try {
         if (dialect === 'postgres') {
-            return await inspectPostgres(driverPath, dbConfig, tableName);
+            return await inspectPostgres(driver, dbConfig, tableName);
         } else {
-            return await inspectMySQL(driverPath, dbConfig, tableName);
+            return await inspectMySQL(driver, dbConfig, tableName);
         }
     } catch (error) {
         if (error.code === 'MODULE_NOT_FOUND') {
@@ -57,8 +62,11 @@ async function getTableSchema(tableName) {
 }
 
 // --- Postgres Logic ---
-async function inspectPostgres(driverPath, dbConfig, tableName) {
-    const { Client } = require(driverPath);
+async function inspectPostgres(driverPackageName, dbConfig, tableName) {
+    // require the validated package name (e.g. 'pg')
+    const { Client } = require(require.resolve(driverPackageName, {
+        paths: [process.cwd()]
+    }));
     const client = new Client(dbConfig);
 
     await client.connect();
@@ -95,8 +103,11 @@ async function inspectPostgres(driverPath, dbConfig, tableName) {
 }
 
 // --- MySQL Logic ---
-async function inspectMySQL(driverPath, dbConfig, tableName) {
-    const mysql = require(path.join(driverPath, 'promise'));
+async function inspectMySQL(driverPackageName, dbConfig, tableName) {
+    // mysql2 exposes a '/promise' entry point
+    const mysql = require(require.resolve(driverPackageName + '/promise', {
+        paths: [process.cwd()]
+    }));
     const connection = await mysql.createConnection(dbConfig);
 
     try {

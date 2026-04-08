@@ -1,6 +1,15 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+function ensureSafeProjectPath(filePath) {
+    const projectRoot = process.cwd();
+    const abs = path.resolve(projectRoot, filePath);
+    if (!abs.startsWith(projectRoot)) {
+        throw new Error(`Attempted path outside project root: ${filePath}`);
+    }
+    return abs;
+}
+
 /**
  * intelligently appends functions to a file if they don't exist.
  * Used for Controllers to add partial CRUD (e.g. adding 'Delete' later).
@@ -13,11 +22,12 @@ async function smartAppend(filePath, functions) {
 
     // 1. Read existing content
     try {
-        content = await fs.readFile(filePath, 'utf-8');
+        const safePath = ensureSafeProjectPath(filePath);
+        content = await fs.readFile(safePath, 'utf-8');
         exists = true;
     } catch (e) {
         // File doesn't exist yet, start empty
-        content = ''; 
+        content = '';
     }
 
     // 2. Filter: Only keep functions that are NOT in the file
@@ -36,11 +46,13 @@ async function smartAppend(filePath, functions) {
     // 4. Write or Append
     if (exists) {
         // Append to the bottom with separation
-        await fs.appendFile(filePath, '\n\n' + newCode);
+        const safePath = ensureSafeProjectPath(filePath);
+        await fs.appendFile(safePath, '\n\n' + newCode);
         return { status: 'updated', message: `Added: ${toAppend.map(f => f.name).join(', ')}` };
     } else {
         // Create new file (Usually the caller handles imports, but for safety we write raw)
-        await fs.writeFile(filePath, newCode);
+        const safePath = ensureSafeProjectPath(filePath);
+        await fs.writeFile(safePath, newCode);
         return { status: 'created', message: 'File created.' };
     }
 }
@@ -55,11 +67,12 @@ async function smartAppend(filePath, functions) {
 async function injectRoute(routerPath, resourceName, routeFile) {
     let content = '';
     try {
-        content = await fs.readFile(routerPath, 'utf-8');
+        const safePath = ensureSafeProjectPath(routerPath);
+        content = await fs.readFile(safePath, 'utf-8');
     } catch (e) {
         return { status: 'error', message: 'Main router file (src/routes/index.js) not found.' };
     }
-    
+
     // 1. Check for duplicates
     // We look for: router.use('/users', ...
     if (content.includes(`router.use('/${resourceName}',`)) {
@@ -74,12 +87,12 @@ async function injectRoute(routerPath, resourceName, routeFile) {
 
     // 2. Strategy A: Magic Marker (Created by bsgen init)
     const marker = '// -- ROUTES INJECTION POINT --';
-    
+
     if (content.includes(marker)) {
         // Replace marker with "Line + Newline + Marker" (preserving it)
         newContent = content.replace(marker, `${injectionLine}\n${marker}`);
         injected = true;
-    } 
+    }
     // 3. Strategy B: Before Export (Fallback if user deleted marker)
     else if (content.includes('module.exports')) {
         newContent = content.replace('module.exports', `${injectionLine}\n\nmodule.exports`);
@@ -88,12 +101,13 @@ async function injectRoute(routerPath, resourceName, routeFile) {
 
     // 4. Write or Warn
     if (injected) {
-        await fs.writeFile(routerPath, newContent);
+        const safePath = ensureSafeProjectPath(routerPath);
+        await fs.writeFile(safePath, newContent);
         return { status: 'updated', message: `Registered /${resourceName} in main router.` };
     } else {
-        return { 
-            status: 'warning', 
-            message: `Could not auto-inject route. Please add this manually to src/routes/index.js:\n   ${injectionLine}` 
+        return {
+            status: 'warning',
+            message: `Could not auto-inject route. Please add this manually to src/routes/index.js:\n   ${injectionLine}`
         };
     }
 }
@@ -104,16 +118,18 @@ async function appendRoute(filePath, routeLines) {
 
     // 1. Read existing content
     try {
-        content = await fs.readFile(filePath, 'utf-8');
+        const safePath = ensureSafeProjectPath(filePath);
+        content = await fs.readFile(safePath, 'utf-8');
         exists = true;
     } catch (e) {
         // File doesn't exist, start empty
-        content = ''; 
+        content = '';
     }
 
     if (!exists) {
         // If new, just write the whole block
-        await fs.writeFile(filePath, routeLines);
+        const safePath = ensureSafeProjectPath(filePath);
+        await fs.writeFile(safePath, routeLines);
         return { status: 'created', message: 'Route file created.' };
     }
 
@@ -125,9 +141,9 @@ async function appendRoute(filePath, routeLines) {
     for (const line of newLines) {
         const trimmed = line.trim();
         // Skip imports, empty lines, and module.exports (we only want the router.get/post calls)
-        if (!trimmed || 
-            trimmed.startsWith('const') || 
-            trimmed.startsWith('module.exports') || 
+        if (!trimmed ||
+            trimmed.startsWith('const') ||
+            trimmed.startsWith('module.exports') ||
             trimmed.startsWith('//')) {
             continue;
         }
@@ -148,14 +164,16 @@ async function appendRoute(filePath, routeLines) {
     if (content.includes('module.exports = router;')) {
         const newBlock = linesToAdd.join('\n');
         const newContent = content.replace(
-            'module.exports = router;', 
+            'module.exports = router;',
             `\n${newBlock}\n\nmodule.exports = router;`
         );
-        await fs.writeFile(filePath, newContent);
+        const safePath = ensureSafeProjectPath(filePath);
+        await fs.writeFile(safePath, newContent);
         return { status: 'updated', message: `Added ${linesToAdd.length} new routes.` };
     } else {
         // Fallback: just append (rare case if file structure is weird)
-        await fs.appendFile(filePath, '\n' + linesToAdd.join('\n'));
+        const safePath = ensureSafeProjectPath(filePath);
+        await fs.appendFile(safePath, '\n' + linesToAdd.join('\n'));
         return { status: 'updated', message: 'Appended new routes.' };
     }
 }

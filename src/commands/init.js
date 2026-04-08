@@ -1,6 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { spawnSync } = require('child_process');
+const safeExec = require('../utils/executor');
 const cleanup = require('../../src/utils/cleanup');
 const config = require('../utils/config');
 
@@ -15,14 +15,14 @@ async function init(options = {}) {
         await fs.access(path.join(currentDir, 'package.json'));
         throw new Error('Project already initialized (package.json found).');
     } catch (e) {
-        if (e.code !== 'ENOENT') throw e; 
+        if (e.code !== 'ENOENT') throw e;
     }
 
     // 2. Create Directories
     try {
         console.log('Creating directory structure...');
         const dirs = ['src/controllers', 'src/routes', 'src/config', 'src/utils'];
-        
+
         for (const d of dirs) {
             const fullPath = path.join(currentDir, d);
             await fs.mkdir(fullPath, { recursive: true });
@@ -37,12 +37,13 @@ async function init(options = {}) {
     if (!skipInstall) {
         try {
             console.log('Installing dependencies...');
-            spawnSync('npm', ['init', '-y'], { stdio: 'inherit', shell: true });
-            spawnSync('npm', ['install', 'express', 'dotenv', 'cors'], { stdio: 'inherit', shell: true });
-            spawnSync('npm', ['install', '--save-dev', 'nodemon'], { stdio: 'inherit', shell: true });
+            // Use safeExec to avoid shell execution and reduce injection risk
+            safeExec('npm', ['init', '-y'], { stdio: 'inherit' });
+            safeExec('npm', ['install', 'express', 'dotenv', 'cors'], { stdio: 'inherit' });
+            safeExec('npm', ['install', '--save-dev', 'nodemon'], { stdio: 'inherit' });
         } catch (error) {
             await cleanup.cleanup();
-            throw new Error('Failed to install dependencies.');
+            throw new Error('Failed to install dependencies. ' + (error && error.message ? error.message : ''));
         }
     }
 
@@ -100,7 +101,7 @@ app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`));
         const gitPath = path.join(currentDir, '.gitignore');
         await fs.writeFile(gitPath, 'node_modules\n.env');
         cleanup.registerCreatedPath(gitPath);
-        
+
     } catch (error) {
         await cleanup.cleanup();
         throw new Error('Failed to write files: ' + error.message);
@@ -110,7 +111,8 @@ app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`));
     try {
         console.log('Generating project configuration (bsgen.json)...');
         await config.createConfig();
-        cleanup.registerCreatedPath('bsgen.json');
+        const bsgenPath = path.join(currentDir, 'bsgen.json');
+        cleanup.registerCreatedPath(bsgenPath);
     } catch (error) {
         console.warn('⚠️  Warning: Failed to create bsgen.json.');
     }
