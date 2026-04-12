@@ -21,7 +21,7 @@ process.on('SIGINT', async () => {
 program
   .name('bsgen')
   .description('A universal backend scaffolding tool')
-  .version('0.3.0', '-v, --version');
+  .version('0.3.1', '-v, --version');
 
 // 3. Command: Init
 program
